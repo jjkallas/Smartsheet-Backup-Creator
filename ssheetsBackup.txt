@@ -1,0 +1,71 @@
+# Powershell script that creates a zip containing all sheets on a Smartsheet account
+#  
+# by jack kallas
+
+$key = 'keyGoesHere'
+
+$outputPath = '\\folder\folder\Backups\SmartSheet\'
+
+Function Smartsheet-Get-Sheets-List{
+    [Cmdletbinding()]
+             
+    $baseUrl = 'https://api.smartsheet.com/2.0/sheets'
+    $authValue = "Bearer $key"
+    $Headers = @{
+        Authorization = $authValue
+    }
+    #Fixes some SSL/TLS issue with http requests
+    [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls -bor [Net.SecurityProtocolType]::Tls11 -bor [Net.SecurityProtocolType]::Tls12
+
+    $apiResponse = Invoke-RestMethod -Uri $baseUrl -Method Get -Headers $Headers
+    return $apiResponse
+}
+
+Function Smartsheet-Save-Sheets{
+    [Cmdletbinding()]
+    Param(
+        [Parameter(Mandatory=$True, ValueFromPipeline=$True)]
+        $sheetList
+    )
+    
+    $baseUrl = 'https://api.smartsheet.com/2.0/sheets/'
+    $authValue = "Bearer $key"
+    $Headers = @{
+        Authorization = $authValue
+        Accept = 'application/vnd.ms-excel'
+    }
+    [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls -bor [Net.SecurityProtocolType]::Tls11 -bor [Net.SecurityProtocolType]::Tls12
+
+
+    $tempFolder = $outputPath + 'temp'
+    
+    if ( (Test-Path $tempFolder) -eq $false ){
+        mkdir $tempFolder
+    }
+   
+    Set-Location -Path $tempFolder
+
+    Foreach ($sheet in $sheetList.data ){
+        # construct file name
+        $fileName = $sheet.name + '.xlsx'
+
+        $sheetUrl = $baseUrl + $sheet.id
+
+        Invoke-RestMethod -Uri $sheetUrl -Method Get -Headers $Headers -OutFile $fileName 
+        
+        Start-Sleep -Milliseconds 250
+    }
+
+    $date = Get-Date -Format "yyyy-MM-dd"
+    
+    #zip sheets from temp folder to:   outputPath\YYYY-mm-dd.zip
+    #Defaults to 'optimal' compression; could change it to 'fastest'
+
+    Compress-Archive -Path ($tempFolder + '\*') -DestinationPath ($outputPath + $date + '.zip') -Force
+    
+    #clean up and delete temp folder
+    Set-Location $outputPath
+    rmdir $tempFolder -Recurse
+}
+
+Smartsheet-Get-Sheets-List | Smartsheet-Save-Sheets
